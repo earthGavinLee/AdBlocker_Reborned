@@ -1,5 +1,15 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
-    <PreferenceCategory android:title="@string/settings">
+    <PreferenceCategory
+        android:key="SETTINGS"
+        android:title="@string/settings">
+        <MultiSelectListPreference
+            android:key="DISABLED_APPS"
+            android:summary="@string/whitelist_description"
+            android:title="@string/whitelist" />
+        <EditTextPreference
+            android:key="DISABLED_ELEMENTS"
+            android:summary="@string/whitelist_element_description"
+            android:title="@string/whitelist_element" />
         <CheckBoxPreference
             android:defaultValue="true"
             android:key="ACTVIEW_HOOK"
@@ -11,7 +21,7 @@
             android:summary="@string/hosts_hook_description"
             android:title="@string/hosts_hook" />
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="WEBVIEW_HOOK"
             android:summary="@string/webview_hook_description"
             android:title="@string/webview_hook" />
@@ -26,7 +36,7 @@
             android:summary="@string/receivers_hook_description"
             android:title="@string/receivers_hook" />
         <CheckBoxPreference
-            android:defaultValue="true"
+            android:defaultValue="false"
             android:key="HIDING_HOOK"
             android:summary="@string/hiding_hook_description"
             android:title="@string/hiding_hook" />
@@ -35,6 +45,11 @@
             android:key="BACKPRESS_HOOK"
             android:summary="@string/backpress_hook_description"
             android:title="@string/backpress_hook" />
+        <CheckBoxPreference
+            android:defaultValue="false"
+            android:key="AGGRESSIVE_HOOK"
+            android:summary="@string/aggressive_hook_description"
+            android:title="@string/aggressive_hook" />
         <CheckBoxPreference
             android:defaultValue="false"
             android:key="DEBUG"
@@ -46,7 +61,9 @@
             android:summary="@string/hide_launcher_icon_description"
             android:title="@string/hide_launcher_icon" />
     </PreferenceCategory>
-    <PreferenceCategory android:title="@string/donation">
+    <PreferenceCategory
+        android:key="ABOUT"
+        android:title="@string/about">
         <Preference
             android:key="DONATE_ALIPAY"
             android:summary="@string/donate_description_alipay"
@@ -55,8 +72,14 @@
             android:key="DONATE_WECHAT"
             android:summary="@string/donate_description_wechat"
             android:title="@string/donate_wechat" />
-    </PreferenceCategory>
-    <PreferenceCategory android:title="@string/about">
+        <Preference
+            android:key="DONATE_PAYPAL"
+            android:summary="@string/donate_description_payapl"
+            android:title="@string/donate_paypal" />
+        <PreferenceScreen
+            android:key="XDA"
+            android:summary="@string/open_xda_description"
+            android:title="@string/open_xda" />
         <PreferenceScreen
             android:key="GITHUB"
             android:summary="@string/open_project_description"

@@ -11,27 +11,31 @@ import com.aviraxp.adblocker.continued.util.LogUtils;
 import java.net.URLDecoder;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class WebViewHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+class WebViewHook {
 
-    private boolean adExist;
-    private Set<String> hostsList;
-    private Set<String> whiteList;
-    private Set<String> regexList;
+    private static boolean adExist;
+
+    void init(IXposedHookZygoteInit.StartupParam startupParam) throws Throwable {
+        String MODULE_PATH = startupParam.modulePath;
+        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
+        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/urls");
+        String decoded = new String(array, "UTF-8");
+        String[] sUrls = decoded.split("\n");
+        HookLoader.urlList = new HashSet<>();
+        Collections.addAll(HookLoader.urlList, sUrls);
+    }
 
     private void removeAdView(final View view) {
 
         ViewGroup.LayoutParams params = view.getLayoutParams();
+
         if (params == null) {
             params = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0);
         } else {
@@ -53,77 +57,81 @@ public class WebViewHook implements IXposedHookLoadPackage, IXposedHookZygoteIni
         });
     }
 
-    public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+    public void hook(final XC_LoadPackage.LoadPackageParam lpparam) {
 
-        if (!PreferencesHelper.isWebViewHookEnabled() || whiteList.contains(lpparam.packageName)) {
+        if (PreferencesHelper.isAndroidApp(lpparam.packageName) || !PreferencesHelper.isWebViewHookEnabled() || PreferencesHelper.disabledApps().contains(lpparam.packageName)) {
             return;
         }
 
         try {
             Class<?> webView = XposedHelpers.findClass("android.webkit.WebView", lpparam.classLoader);
 
-            XposedBridge.hookAllMethods(webView, "loadUrl", new XC_MethodHook() {
+            XC_MethodHook loadUrlHook = new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) {
                     String url = (String) param.args[0];
                     if (url != null) {
-                        adExist = urlFiltering(url, null, param);
+                        adExist = urlFiltering(url, null, null, param);
                         if (adExist) {
-                            param.setResult(new Object());
                             LogUtils.logRecord("WebView Block Success: " + lpparam.packageName + "/" + url, true);
                         }
                     }
                 }
-            });
+            };
 
-            XposedBridge.hookAllMethods(webView, "loadData", new XC_MethodHook() {
+            XC_MethodHook loadDataHook = new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) {
                     String data = (String) param.args[0];
+                    String encodingType = (String) param.args[2];
                     if (data != null) {
-                        adExist = urlFiltering(null, data, param);
+                        adExist = urlFiltering(null, data, encodingType, param);
                         if (adExist) {
-                            param.setResult(new Object());
                             LogUtils.logRecord("WebView Block Success: " + lpparam.packageName + "/" + data, true);
                         }
                     }
                 }
-            });
+            };
 
-            XposedBridge.hookAllMethods(webView, "loadDataWithBaseURL", new XC_MethodHook() {
+            XC_MethodHook loadDataWithBaseURL = new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+                protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) {
                     String url = (String) param.args[0];
                     String data = (String) param.args[1];
+                    String encodingType = (String) param.args[3];
                     if (url != null && data != null) {
-                        adExist = urlFiltering(url, data, param);
+                        adExist = urlFiltering(url, data, encodingType, param);
                         if (adExist) {
-                            param.setResult(new Object());
                             LogUtils.logRecord("WebView Block Success: " + lpparam.packageName + "/" + url + " & " + data, true);
                         }
                     }
                 }
-            });
+            };
+
+            XposedBridge.hookAllMethods(webView, "loadUrl", loadUrlHook);
+            XposedBridge.hookAllMethods(webView, "loadData", loadDataHook);
+            XposedBridge.hookAllMethods(webView, "loadDataWithBaseURL", loadDataWithBaseURL);
         } catch (XposedHelpers.ClassNotFoundError ignored) {
         }
     }
 
-    private boolean urlFiltering(String url, String data, XC_MethodHook.MethodHookParam param) {
+    private boolean urlFiltering(String url, String data, String encodingType, XC_MethodHook.MethodHookParam param) {
 
         String urlDecode = null;
         String dataDecode = null;
 
         try {
             if (url != null) {
-                urlDecode = URLDecoder.decode(url, "UTF-8");
+                if (encodingType != null) {
+                    urlDecode = URLDecoder.decode(url, encodingType);
+                } else {
+                    urlDecode = URLDecoder.decode(url, "UTF-8");
+                }
             }
-        } catch (IllegalArgumentException ignored) {
-        } catch (Throwable t) {
-            LogUtils.logRecord(t, false);
-        }
-
-        try {
             if (data != null) {
+                if (encodingType != null) {
+                    dataDecode = URLDecoder.decode(data, encodingType);
+                }
                 dataDecode = URLDecoder.decode(data, "UTF-8");
             }
         } catch (IllegalArgumentException ignored) {
@@ -131,67 +139,44 @@ public class WebViewHook implements IXposedHookLoadPackage, IXposedHookZygoteIni
             LogUtils.logRecord(t, false);
         }
 
-        try {
-            for (String adUrl : hostsList) {
-                if ((urlDecode != null && urlDecode.startsWith("http") && urlDecode.contains(adUrl)) || (dataDecode != null && dataDecode.startsWith("http") && dataDecode.contains(adUrl))) {
-                    param.setResult(new Object());
-                    removeAdView((View) param.thisObject);
-                    return true;
-                }
-            }
-        } catch (IllegalArgumentException ignored) {
-        } catch (Throwable t) {
-            LogUtils.logRecord(t, false);
-        }
+        return hostsBlock(urlDecode, HookLoader.hostsList, param) || hostsBlock(dataDecode, HookLoader.hostsList, param) || urlBlock(urlDecode, HookLoader.urlList, param) || urlBlock(dataDecode, HookLoader.urlList, param);
+    }
 
-        try {
-            for (String regexAdUrl : regexList) {
-                if ((urlDecode != null && urlDecode.startsWith("http")) || (dataDecode != null && dataDecode.startsWith("http"))) {
-                    if (urlDecode != null) {
-                        Pattern regexPattern = Pattern.compile(regexAdUrl);
-                        Matcher matcher = regexPattern.matcher(urlDecode);
-                        if (matcher.find()) {
-                            param.setResult(new Object());
-                            removeAdView((View) param.thisObject);
-                            return true;
-                        }
-                    }
-                    if (dataDecode != null) {
-                        Pattern regexPattern = Pattern.compile(regexAdUrl);
-                        Matcher matcher = regexPattern.matcher(dataDecode);
-                        if (matcher.find()) {
-                            param.setResult(new Object());
-                            removeAdView((View) param.thisObject);
-                            return true;
-                        }
+    private boolean hostsBlock(String string, HashSet<String> hashSet, XC_MethodHook.MethodHookParam param) {
+        if ((string != null && !PreferencesHelper.whiteListElements().contains(string) && string.startsWith("http"))) {
+            try {
+                for (String adUrl : hashSet) {
+                    if (string.substring(string.indexOf("://") + 3).startsWith(adUrl)) {
+                        param.setResult(new Object());
+                        removeAdView((View) param.thisObject);
+                        param.setResult(new Object());
+                        return true;
                     }
                 }
+            } catch (IllegalArgumentException ignored) {
+            } catch (Throwable t) {
+                LogUtils.logRecord(t, false);
             }
-        } catch (IllegalArgumentException ignored) {
-        } catch (Throwable t) {
-            LogUtils.logRecord(t, false);
         }
-
         return false;
     }
 
-    public void initZygote(StartupParam startupParam) throws Throwable {
-        String MODULE_PATH = startupParam.modulePath;
-        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
-        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/hosts");
-        byte[] array2 = XposedHelpers.assetAsByteArray(res, "whitelist/urlapp");
-        byte[] array3 = XposedHelpers.assetAsByteArray(res, "blocklist/regexurls");
-        String decoded = new String(array, "UTF-8");
-        String decoded2 = new String(array2, "UTF-8");
-        String decoded3 = new String(array3, "UTF-8");
-        String[] sUrls = decoded.split("\n");
-        String[] sUrls2 = decoded2.split("\n");
-        String[] sUrls3 = decoded3.split("\n");
-        hostsList = new HashSet<>();
-        whiteList = new HashSet<>();
-        regexList = new HashSet<>();
-        Collections.addAll(hostsList, sUrls);
-        Collections.addAll(whiteList, sUrls2);
-        Collections.addAll(regexList, sUrls3);
+    private boolean urlBlock(String string, HashSet<String> hashSet, XC_MethodHook.MethodHookParam param) {
+        if ((string != null && !PreferencesHelper.whiteListElements().contains(string) && string.startsWith("http"))) {
+            try {
+                for (String adUrl : hashSet) {
+                    if (string.contains(adUrl)) {
+                        param.setResult(new Object());
+                        removeAdView((View) param.thisObject);
+                        param.setResult(new Object());
+                        return true;
+                    }
+                }
+            } catch (IllegalArgumentException ignored) {
+            } catch (Throwable t) {
+                LogUtils.logRecord(t, false);
+            }
+        }
+        return false;
     }
 }

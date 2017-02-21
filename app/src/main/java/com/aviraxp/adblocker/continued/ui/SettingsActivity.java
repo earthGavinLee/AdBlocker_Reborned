@@ -4,45 +4,98 @@ import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
+import android.preference.MultiSelectListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceActivity;
+import android.preference.PreferenceCategory;
 import android.widget.Toast;
 
 import com.aviraxp.adblocker.continued.BuildConfig;
 import com.aviraxp.adblocker.continued.R;
+import com.aviraxp.wechatdonationhelper.Donation;
 
-import de.psdev.licensesdialog.LicensesDialog;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
 import moe.feng.alipay.zerosdk.AlipayZeroSdk;
 
+@SuppressWarnings("deprecation")
 public class SettingsActivity extends PreferenceActivity {
 
     static boolean isActivated = false;
 
-    @SuppressWarnings("deprecation")
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getPreferenceManager().setSharedPreferencesMode(MODE_WORLD_READABLE);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            getPreferenceManager().setSharedPreferencesMode(MODE_WORLD_READABLE);
+        }
         addPreferencesFromResource(R.xml.pref_settings);
         checkState();
-        donateAlipay();
-        donateWechat();
-        openGithub();
+        new AppPicker().execute();
+        prepareDonationStatus();
+        uriListener();
         hideIconListener();
         licensesListener();
     }
 
-    @SuppressWarnings("deprecation")
+    private void uriListener() {
+        uriHelper("DONATE_PAYPAL", "https://paypal.me/wanghan1995315");
+        uriHelper("GITHUB", "https://github.com/aviraxp/AdBlocker_Reborn");
+        uriHelper("XDA", "https://forum.xda-developers.com/xposed/modules/xposed-adblocker-reborn-1-0-1-2017-02-11-t3554617");
+    }
+
+    private void uriHelper(String perf, final String uri) {
+        findPreference(perf).setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            @Override
+            public boolean onPreferenceClick(Preference preference) {
+                Intent intent = new Intent();
+                intent.setAction(Intent.ACTION_VIEW)
+                        .setData(Uri.parse(uri));
+                startActivity(intent);
+                return true;
+            }
+        });
+    }
+
+    private void prepareDonationStatus() {
+        removePreference("com.tencent.mm", "DONATE_WECHAT");
+        removePreference("com.eg.android.AlipayGphone", "DONATE_ALIPAY");
+    }
+
+    private void removePreference(String packageName, String perfName) {
+        try {
+            PackageInfo info = getApplicationContext().getPackageManager().getPackageInfo(packageName, 0);
+            boolean isAvailable = (info != null);
+            if (!isAvailable) {
+                PreferenceCategory displayOptions = (PreferenceCategory) findPreference("ABOUT");
+                displayOptions.removePreference(findPreference(perfName));
+            } else if (packageName.equals("com.tencent.mm")) {
+                donateWechat();
+            } else if (packageName.equals("com.eg.android.AlipayGphone")) {
+                donateAlipay();
+            }
+        } catch (Throwable t) {
+            PreferenceCategory displayOptions = (PreferenceCategory) findPreference("ABOUT");
+            displayOptions.removePreference(findPreference(perfName));
+        }
+    }
+
     private void licensesListener() {
         findPreference("LICENSES").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             @Override
             public boolean onPreferenceClick(Preference preference) {
-                new LicensesDialog.Builder(SettingsActivity.this)
-                        .setNotices(R.raw.licenses)
-                        .setIncludeOwnLicense(false)
-                        .build()
+                new LicensesDialog(SettingsActivity.this)
+                        .setTitle(R.string.licensedialog)
+                        .setPositiveButton(android.R.string.ok, null)
                         .show();
                 return true;
             }
@@ -51,22 +104,18 @@ public class SettingsActivity extends PreferenceActivity {
 
     private void checkState() {
         if (!isActivated) {
-            showNotActive();
+            new AlertDialog.Builder(this)
+                    .setCancelable(true)
+                    .setMessage(R.string.hint_reboot_not_active)
+                    .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int id) {
+                            openXposed();
+                        }
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
         }
-    }
-
-    private void showNotActive() {
-        new AlertDialog.Builder(this)
-                .setCancelable(true)
-                .setMessage(R.string.hint_reboot_not_active)
-                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        openXposed();
-                    }
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
     }
 
     private void openXposed() {
@@ -85,50 +134,26 @@ public class SettingsActivity extends PreferenceActivity {
         }
     }
 
-    @SuppressWarnings("deprecation")
     private void donateAlipay() {
         findPreference("DONATE_ALIPAY").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             @Override
             public boolean onPreferenceClick(Preference preference) {
-                if (AlipayZeroSdk.hasInstalledAlipayClient(getApplicationContext())) {
-                    AlipayZeroSdk.startAlipayClient(SettingsActivity.this, "aex00388woilyb9ln32hlfe");
-                } else {
-                    Toast.makeText(getApplicationContext(), R.string.donate_alipay_failed, Toast.LENGTH_SHORT).show();
-                }
+                AlipayZeroSdk.startAlipayClient(SettingsActivity.this, "aex00388woilyb9ln32hlfe");
                 return true;
             }
         });
     }
 
-    @SuppressWarnings("deprecation")
     private void donateWechat() {
         findPreference("DONATE_WECHAT").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             @Override
             public boolean onPreferenceClick(Preference preference) {
-                Intent intent = new Intent();
-                intent.setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI");
-                intent.putExtra("wechat_donate", true);
-                startActivity(intent);
+                Donation.openWechatDonation("wxid_90m10eigpruz21", SettingsActivity.this);
                 return true;
             }
         });
     }
 
-    @SuppressWarnings("deprecation")
-    private void openGithub() {
-        findPreference("GITHUB").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            @Override
-            public boolean onPreferenceClick(Preference preference) {
-                Intent intent = new Intent();
-                intent.setAction(Intent.ACTION_VIEW);
-                intent.setData(Uri.parse("https://github.com/aviraxp/AdBlocker_Reborned"));
-                startActivity(intent);
-                return true;
-            }
-        });
-    }
-
-    @SuppressWarnings("deprecation")
     private void hideIconListener() {
         findPreference("HIDEICON").setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
             @Override
@@ -143,5 +168,52 @@ public class SettingsActivity extends PreferenceActivity {
                 return true;
             }
         });
+    }
+
+    private class AppPicker extends AsyncTask<Void, Void, Void> {
+
+        final MultiSelectListPreference disabledApps = (MultiSelectListPreference) findPreference("DISABLED_APPS");
+        final List<CharSequence> appNames = new ArrayList<>();
+        final List<CharSequence> packageNames = new ArrayList<>();
+
+        @Override
+        protected void onPreExecute() {
+            disabledApps.setEnabled(false);
+        }
+
+        @Override
+        protected Void doInBackground(Void... arg0) {
+
+            final List<String[]> sortedApps = new ArrayList<>();
+            final PackageManager pm = getApplicationContext().getPackageManager();
+            final List<ApplicationInfo> packages = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+
+            for (ApplicationInfo app : packages) {
+                sortedApps.add(new String[]{app.packageName, app.loadLabel(pm).toString()});
+            }
+
+            Collections.sort(sortedApps, new Comparator<String[]>() {
+                @Override
+                public int compare(String[] entry1, String[] entry2) {
+                    return entry1[1].compareToIgnoreCase(entry2[1]);
+                }
+            });
+
+            for (int i = 0; i < sortedApps.size(); i++) {
+                appNames.add(sortedApps.get(i)[1] + "\n" + "(" + sortedApps.get(i)[0] + ")");
+                packageNames.add(sortedApps.get(i)[0]);
+            }
+
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(Void result) {
+            CharSequence[] appNamesList = appNames.toArray(new CharSequence[appNames.size()]);
+            CharSequence[] packageNamesList = packageNames.toArray(new CharSequence[packageNames.size()]);
+            disabledApps.setEntries(appNamesList);
+            disabledApps.setEntryValues(packageNamesList);
+            disabledApps.setEnabled(true);
+        }
     }
 }

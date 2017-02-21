@@ -2,21 +2,21 @@ package com.aviraxp.adblocker.continued.hook;
 
 import com.aviraxp.adblocker.continued.helper.PreferencesHelper;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class BackPressHook implements IXposedHookLoadPackage {
+class BackPressHook {
 
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+    public void hook(XC_LoadPackage.LoadPackageParam lpparam) {
 
-        if (!PreferencesHelper.isBackPressHookEnabled()) {
+        if (PreferencesHelper.isAndroidApp(lpparam.packageName) || !PreferencesHelper.isBackPressHookEnabled() || PreferencesHelper.disabledApps().contains(lpparam.packageName) || lpparam.packageName.equals("android")) {
             return;
         }
 
         XC_MethodHook backPressHook = new XC_MethodHook() {
-            protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+            @Override
+            protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) {
                 param.args[0] = true;
             }
         };

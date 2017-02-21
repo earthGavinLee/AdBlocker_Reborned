@@ -7,13 +7,13 @@ android {
         applicationId "com.aviraxp.adblocker.continued"
         minSdkVersion 15
         targetSdkVersion 25
-        versionCode 8
-        versionName "八雲紫"
+        versionCode 13
+        versionName "1.1 - 致不灭的你"
     }
     buildTypes {
         release {
             minifyEnabled true
-            zipAlignEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
@@ -23,9 +23,8 @@ android {
 }
 
 dependencies {
-    provided 'de.robv.android.xposed:api:53'
+    provided 'de.robv.android.xposed:api:82'
     compile 'moe.feng:AlipayZeroSdk:1.1'
-    compile('de.psdev.licensesdialog:licensesdialog:1.8.1') {
-        exclude group: 'com.android.support', module: 'appcompat-v7'
-    }
+    provided files('libs/AndroidHiddenAPI.jar')
+    compile files('libs/WechatDonationHelper.jar')
 }

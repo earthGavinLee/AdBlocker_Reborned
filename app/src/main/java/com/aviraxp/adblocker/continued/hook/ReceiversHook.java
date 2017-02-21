@@ -13,21 +13,27 @@ import com.aviraxp.adblocker.continued.util.LogUtils;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Set;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class ReceiversHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+class ReceiversHook {
 
-    private Set<String> receiversList;
+    void init(IXposedHookZygoteInit.StartupParam startupParam) throws Throwable {
+        String MODULE_PATH = startupParam.modulePath;
+        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
+        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/receivers");
+        String decoded = new String(array, "UTF-8");
+        String[] sUrls = decoded.split("\n");
+        HookLoader.receiversList = new HashSet<>();
+        Collections.addAll(HookLoader.receiversList, sUrls);
+    }
 
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+    public void hook(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
 
-        if (!PreferencesHelper.isReceiversHookEnabled() || lpparam.packageName.equals("android")) {
+        if (PreferencesHelper.isAndroidApp(lpparam.packageName) || !PreferencesHelper.isReceiversHookEnabled() || PreferencesHelper.disabledApps().contains(lpparam.packageName) || lpparam.packageName.equals("android")) {
             return;
         }
 
@@ -42,21 +48,11 @@ public class ReceiversHook implements IXposedHookLoadPackage, IXposedHookZygoteI
             }
         }
 
-        for (String checkReceiver : receiversList) {
-            if (arrayReceivers.contains(checkReceiver)) {
+        for (String checkReceiver : HookLoader.receiversList) {
+            if (!PreferencesHelper.whiteListElements().contains(checkReceiver) && arrayReceivers.contains(checkReceiver)) {
                 XposedHelpers.findAndHookMethod(checkReceiver, lpparam.classLoader, "onReceive", Context.class, Intent.class, XC_MethodReplacement.DO_NOTHING);
                 LogUtils.logRecord("Receiver Block Success: " + lpparam.packageName + "/" + checkReceiver, true);
             }
         }
-    }
-
-    public void initZygote(StartupParam startupParam) throws Throwable {
-        String MODULE_PATH = startupParam.modulePath;
-        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
-        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/receivers");
-        String decoded = new String(array, "UTF-8");
-        String[] sUrls = decoded.split("\n");
-        receiversList = new HashSet<>();
-        Collections.addAll(receiversList, sUrls);
     }
 }

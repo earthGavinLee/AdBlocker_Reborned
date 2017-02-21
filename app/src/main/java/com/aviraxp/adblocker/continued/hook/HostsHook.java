@@ -10,23 +10,36 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Set;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+class HostsHook {
 
-    private Set<String> hostsList;
-    private Set<String> whiteList;
+    private static final String BLOCK_MESSAGE = "Blocked by AdBlocker Reborn: ";
 
-    public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+    void init(IXposedHookZygoteInit.StartupParam startupParam) throws Throwable {
+        String MODULE_PATH = startupParam.modulePath;
+        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
+        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/hosts");
+        byte[] array2 = XposedHelpers.assetAsByteArray(res, "blocklist/hosts_yhosts");
+        String decoded = new String(array, "UTF-8");
+        String decoded2 = new String(array2, "UTF-8");
+        String decoded3 = decoded2.replace("127.0.0.1 ", "");
+        String[] sUrls = decoded.split("\n");
+        String[] sUrls2 = decoded3.split("\n");
+        HookLoader.hostsList = new HashSet<>();
+        HookLoader.hostsList_yhosts = new HashSet<>();
+        Collections.addAll(HookLoader.hostsList, sUrls);
+        Collections.addAll(HookLoader.hostsList, sUrls2);
+    }
 
-        if (!PreferencesHelper.isHostsHookEnabled() || whiteList.contains(lpparam.packageName)) {
+    public void hook(final XC_LoadPackage.LoadPackageParam lpparam) {
+
+        if (PreferencesHelper.isAndroidApp(lpparam.packageName) || !PreferencesHelper.isHostsHookEnabled() || PreferencesHelper.disabledApps().contains(lpparam.packageName)) {
             return;
         }
 
@@ -35,7 +48,7 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
         Class<?> socketClz = XposedHelpers.findClass("java.net.Socket", lpparam.classLoader);
         Class<?> ioBridgeClz = XposedHelpers.findClass("libcore.io.IoBridge", lpparam.classLoader);
 
-        XposedBridge.hookAllConstructors(socketClz, new XC_MethodHook() {
+        XC_MethodHook socketClzHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                 try {
@@ -47,7 +60,7 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                         } else if (obj.getClass().getName().equals("java.lang.InetAddress")) {
                             host = ((InetAddress) obj).getHostName();
                         }
-                        if (host != null && hostsList.contains(host)) {
+                        if (host != null && !PreferencesHelper.whiteListElements().contains(host) && HookLoader.hostsList.contains(host)) {
                             param.args[0] = null;
                             param.setResult(new Object());
                             LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
@@ -57,30 +70,16 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                     LogUtils.logRecord(t, false);
                 }
             }
-        });
+        };
 
         XC_MethodHook inetAddrHookSingleResult = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                 try {
                     String host = (String) param.args[0];
-                    if (host != null && hostsList.contains(host)) {
+                    if (host != null && !PreferencesHelper.whiteListElements().contains(host) && HookLoader.hostsList.contains(host)) {
                         param.setResult(new Object());
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + host));
-                        LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
-                    }
-                } catch (Throwable t) {
-                    LogUtils.logRecord(t, false);
-                }
-            }
-
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                try {
-                    String host = (String) param.args[0];
-                    if (host != null && hostsList.contains(host)) {
-                        param.setResult(new Object());
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + host));
+                        param.setThrowable(new UnknownHostException(BLOCK_MESSAGE + host));
                         LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
                     }
                 } catch (Throwable t) {
@@ -88,11 +87,8 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                 }
             }
         };
-        XposedBridge.hookAllMethods(inetAddrClz, "getAllByName", inetAddrHookSingleResult);
-        XposedBridge.hookAllMethods(inetAddrClz, "getByName", inetAddrHookSingleResult);
-        XposedBridge.hookAllMethods(inetSockAddrClz, "createUnresolved", inetAddrHookSingleResult);
 
-        XposedBridge.hookAllConstructors(inetSockAddrClz, new XC_MethodHook() {
+        XC_MethodHook inetSockAddrClzHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                 try {
@@ -104,10 +100,10 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                         } else if (obj.getClass().getName().equals("java.lang.InetAddress")) {
                             host = ((InetAddress) obj).getHostName();
                         }
-                        if (host != null && hostsList.contains(host)) {
-                            param.args[0] = "0.0.0.0";
+                        if (host != null && !PreferencesHelper.whiteListElements().contains(host) && HookLoader.hostsList.contains(host)) {
+                            param.args[0] = "localhost";
                             param.setResult(new Object());
-                            param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + host));
+                            param.setThrowable(new UnknownHostException(BLOCK_MESSAGE + host));
                             LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
                         }
                     }
@@ -115,7 +111,7 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                     LogUtils.logRecord(t, false);
                 }
             }
-        });
+        };
 
         XC_MethodHook ioBridgeHook = new XC_MethodHook() {
             @Override
@@ -124,33 +120,13 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                     InetAddress addr = (InetAddress) param.args[1];
                     String host = addr.getHostName();
                     String ip = addr.getHostAddress();
-                    if (host != null && hostsList.contains(host)) {
+                    if (host != null && !PreferencesHelper.whiteListElements().contains(host) && HookLoader.hostsList.contains(host)) {
                         param.setResult(false);
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + host));
+                        param.setThrowable(new UnknownHostException(BLOCK_MESSAGE + host));
                         LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
-                    } else if (ip != null && hostsList.contains(ip)) {
+                    } else if (ip != null && !PreferencesHelper.whiteListElements().contains(ip) && HookLoader.hostsList.contains(ip)) {
                         param.setResult(false);
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + ip));
-                        LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + ip, true);
-                    }
-                } catch (Throwable t) {
-                    LogUtils.logRecord(t, false);
-                }
-            }
-
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                try {
-                    InetAddress addr = (InetAddress) param.args[1];
-                    String host = addr.getHostName();
-                    String ip = addr.getHostAddress();
-                    if (host != null && hostsList.contains(host)) {
-                        param.setResult(false);
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + host));
-                        LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + host, true);
-                    } else if (ip != null && hostsList.contains(ip)) {
-                        param.setResult(false);
-                        param.setThrowable(new UnknownHostException("Blocked by ADBlocker Continued: " + ip));
+                        param.setThrowable(new UnknownHostException(BLOCK_MESSAGE + ip));
                         LogUtils.logRecord("Hosts Block Success: " + lpparam.packageName + "/" + ip, true);
                     }
                 } catch (Throwable t) {
@@ -158,22 +134,13 @@ public class HostsHook implements IXposedHookLoadPackage, IXposedHookZygoteInit 
                 }
             }
         };
+
+        XposedBridge.hookAllConstructors(socketClz, socketClzHook);
+        XposedBridge.hookAllConstructors(inetSockAddrClz, inetSockAddrClzHook);
+        XposedBridge.hookAllMethods(inetAddrClz, "getAllByName", inetAddrHookSingleResult);
+        XposedBridge.hookAllMethods(inetAddrClz, "getByName", inetAddrHookSingleResult);
+        XposedBridge.hookAllMethods(inetSockAddrClz, "createUnresolved", inetAddrHookSingleResult);
         XposedBridge.hookAllMethods(ioBridgeClz, "connect", ioBridgeHook);
         XposedBridge.hookAllMethods(ioBridgeClz, "connectErrno", ioBridgeHook);
-    }
-
-    public void initZygote(StartupParam startupParam) throws Throwable {
-        String MODULE_PATH = startupParam.modulePath;
-        Resources res = XModuleResources.createInstance(MODULE_PATH, null);
-        byte[] array = XposedHelpers.assetAsByteArray(res, "blocklist/hosts");
-        byte[] array2 = XposedHelpers.assetAsByteArray(res, "whitelist/urlapp");
-        String decoded = new String(array, "UTF-8");
-        String decoded2 = new String(array2, "UTF-8");
-        String[] sUrls = decoded.split("\n");
-        String[] sUrls2 = decoded2.split("\n");
-        hostsList = new HashSet<>();
-        whiteList = new HashSet<>();
-        Collections.addAll(hostsList, sUrls);
-        Collections.addAll(whiteList, sUrls2);
     }
 }
